@@ -44,8 +44,72 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
-          submodules: recursive
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+
+      - name: Init submodules.
+        shell: bash
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^path\ =\ (.+)$ ]]; then
+              sub_path="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ ^url\ =\ (.+)$ ]]; then
+              sub_url="${BASH_REMATCH[1]}"
+              if [ -n "$sub_path" ]; then
+                echo "Cloning $sub_url -> $sub_path"
+                if [ -d "$sub_path" ] && [ "$(ls -A "$sub_path" 2>/dev/null)" ]; then
+                  echo "  Already populated, skipping."
+                else
+                  mkdir -p "$sub_path"
+                  git clone --depth 1 "$sub_url" "$sub_path" || echo "  WARN: Failed to clone $sub_path"
+                fi
+                sub_path=""
+              fi
+            fi
+          done < .gitmodules
+          echo "Submodule init complete."
+
+      - name: Verify dependencies.
+        shell: bash
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          FAILED=0
+
+          REQUIRED_FILES=(
+            "cmake/version.cmake"
+            "cmake/variables.cmake"
+            "cmake/nice_target_sources.cmake"
+            "cmake/target_compile_options_if_exists.cmake"
+            "cmake/target_link_frameworks.cmake"
+            "cmake/target_link_options_if_exists.cmake"
+            "cmake/init_target.cmake"
+            "cmake/generate_target.cmake"
+            "cmake/nuget.cmake"
+            "cmake/validate_d3d_compiler.cmake"
+            "cmake/target_prepare_qrc.cmake"
+            "cmake/options.cmake"
+            "cmake/external/qt/package.cmake"
+            "cmake/validate_special_target.cmake"
+            "Telegram/CMakeLists.txt"
+            "Telegram/build/version"
+            "Telegram/build/prepare/prepare.py"
+          )
+
+          for f in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::MISSING: $f"
+              FAILED=1
+            fi
+          done
+
+          if [ $FAILED -eq 1 ]; then
+            echo ""
+            echo "::error::Build aborted. One or more required files are missing."
+            echo "Ensure all submodules cloned successfully in the previous step."
+            exit 1
+          fi
+
+          echo "All required files verified."
 
       - name: First set up.
         shell: bash
@@ -117,17 +181,18 @@ jobs:
       - name: Configure.
         if: env.ONLY_CACHE == 'false'
         run: |
-          cd %TBUILD%\%REPO_NAME%\Telegram
-
-          call configure.bat ^
-          x64 ^
+          cmake ^
+          -S %TBUILD%\%REPO_NAME% ^
+          -B %TBUILD%\%REPO_NAME%\out ^
+          -Ax64 -T v143 ^
           -D TDESKTOP_API_ID=0 ^
           -D TDESKTOP_API_HASH= ^
           -D CMAKE_CONFIGURATION_TYPES=Release ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
-          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON ^
+          -Werror=dev -Werror=deprecated --warn-uninitialized
 
       - name: Build.
         if: env.ONLY_CACHE == 'false'
