@@ -49,25 +49,47 @@ jobs:
       - name: Init submodules.
         shell: bash
         run: |
+          set -euo pipefail
           cd "$TBUILD/$REPO_NAME"
-          while IFS= read -r line; do
-            if [[ "$line" =~ ^path\ =\ (.+)$ ]]; then
-              sub_path="${BASH_REMATCH[1]}"
-            elif [[ "$line" =~ ^url\ =\ (.+)$ ]]; then
-              sub_url="${BASH_REMATCH[1]}"
-              if [ -n "$sub_path" ]; then
-                echo "Cloning $sub_url -> $sub_path"
-                if [ -d "$sub_path" ] && [ "$(ls -A "$sub_path" 2>/dev/null)" ]; then
-                  echo "  Already populated, skipping."
-                else
-                  mkdir -p "$sub_path"
-                  git clone --depth 1 "$sub_url" "$sub_path" || echo "  WARN: Failed to clone $sub_path"
-                fi
-                sub_path=""
+
+          echo "=== Parsing .gitmodules ==="
+          mapfile -t paths < <(grep '^\s*path\s*=' .gitmodules | sed 's/^\s*path\s*=\s*//')
+          mapfile -t urls  < <(grep '^\s*url\s*='  .gitmodules | sed 's/^\s*url\s*=\s*//')
+
+          count=${#paths[@]}
+          echo "Found $count submodules."
+          echo ""
+
+          for (( i=0; i<count; i++ )); do
+            p="${paths[$i]}"
+            u="${urls[$i]}"
+            echo "[$((i+1))/$count] path=$p"
+            echo "              url=$u"
+            if [ -d "$p" ] && [ "$(ls -A "$p" 2>/dev/null)" ]; then
+              echo "              -> Already populated, skipping."
+            else
+              mkdir -p "$p"
+              echo "              -> Cloning..."
+              if ! git clone --depth 1 "$u" "$p"; then
+                echo "::error::FATAL: Failed to clone $u into $p"
+                exit 1
               fi
+              if [ ! -d "$p" ] || [ -z "$(ls -A "$p" 2>/dev/null)" ]; then
+                echo "::error::FATAL: Clone succeeded but $p is empty or missing"
+                exit 1
+              fi
+              echo "              -> OK"
             fi
-          done < .gitmodules
-          echo "Submodule init complete."
+          done
+
+          echo ""
+          echo "=== All submodules cloned ==="
+
+          echo ""
+          echo "=== cmake/ directory tree ==="
+          find cmake -maxdepth 3 -type f | sort | head -30
+          echo "..."
+          echo "Total files in cmake/: $(find cmake -type f | wc -l)"
 
       - name: Verify dependencies.
         shell: bash
