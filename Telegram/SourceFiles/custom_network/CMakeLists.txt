@@ -10,6 +10,7 @@ if (DESKTOP_APP_CUSTOM_BACKEND)
         notification_handler.cpp
         file_transfer.cpp
         custom_auth.cpp
+        karagram_backend.cpp
     )
     target_include_directories(custom_network PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(custom_network PUBLIC
