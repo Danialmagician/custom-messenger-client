@@ -61,24 +61,27 @@ jobs:
         shell: cmd
 
     steps:
-      - name: Clone.
-        uses: actions/checkout@v7
-
       - name: Prepare directories.
         run: |
-          mkdir "%GITHUB_WORKSPACE%\Libraries"
+          mkdir "%GITHUB_WORKSPACE%\TBuild"
+          mkdir "%GITHUB_WORKSPACE%\TBuild\Libraries"
+
+      - name: Clone.
+        uses: actions/checkout@v7
+        with:
+          path: TBuild/custom-messenger-client
 
       - name: First set up.
         shell: bash
         run: |
-          DOCPATH="$GITHUB_WORKSPACE/docs/building-win.md"
+          DOCPATH="$GITHUB_WORKSPACE/TBuild/custom-messenger-client/docs/building-win.md"
           echo "Looking for SDK version in $DOCPATH"
           SDK="$(grep "SDK version" "$DOCPATH" | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
           echo "SDK=$SDK" >> $GITHUB_ENV
 
           sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
 
-          echo "$(sha256sum "$GITHUB_WORKSPACE/$PREPARE_PATH" | awk '{ print $1 }')" >> CACHE_KEY.txt
+          echo "$(sha256sum "$GITHUB_WORKSPACE/TBuild/custom-messenger-client/$PREPARE_PATH" | awk '{ print $1 }')" >> CACHE_KEY.txt
           echo "$SDK" >> CACHE_KEY.txt
           echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
 
@@ -101,7 +104,7 @@ jobs:
         id: cache-third-party
         uses: actions/cache@v6
         with:
-          path: ${{ github.workspace }}\ThirdParty
+          path: ${{ github.workspace }}\TBuild\ThirdParty
           key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ runner.arch }}-third-party-
 
@@ -110,11 +113,11 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            ${{ github.workspace }}\Libraries\win64\*
-            !${{ github.workspace }}\Libraries\win64\cache_keys
-            !${{ github.workspace }}\Libraries\win64\[qQ]t[_-]*
-            ${{ github.workspace }}\Libraries\win64\cache_keys\*
-            !${{ github.workspace }}\Libraries\win64\cache_keys\[qQ]t[_-]*
+            ${{ github.workspace }}\TBuild\Libraries\win64\*
+            !${{ github.workspace }}\TBuild\Libraries\win64\cache_keys
+            !${{ github.workspace }}\TBuild\Libraries\win64\[qQ]t[_-]*
+            ${{ github.workspace }}\TBuild\Libraries\win64\cache_keys\*
+            !${{ github.workspace }}\TBuild\Libraries\win64\cache_keys\[qQ]t[_-]*
           key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-libs-
 
@@ -123,14 +126,14 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            ${{ github.workspace }}\Libraries\win64\[qQ]t[_-]*
-            ${{ github.workspace }}\Libraries\win64\cache_keys\[qQ]t[_-]*
+            ${{ github.workspace }}\TBuild\Libraries\win64\[qQ]t[_-]*
+            ${{ github.workspace }}\TBuild\Libraries\win64\cache_keys\[qQ]t[_-]*
           key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
 
       - name: Libraries.
         run: |
-          "%GITHUB_WORKSPACE%\Telegram\build\prepare\win.bat" skip-release silent ${{ matrix.qt }}
+          "%GITHUB_WORKSPACE%\TBuild\custom-messenger-client\Telegram\build\prepare\win.bat" skip-release silent ${{ matrix.qt }}
 
       - name: Read configuration matrix.
         shell: bash
@@ -140,14 +143,10 @@ jobs:
           echo "TDESKTOP_BUILD_ARCH=$ARCH" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
 
-      - name: Free up some disk space.
-        shell: bash
-        run: find "$GITHUB_WORKSPACE/Libraries/win64" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' ')' -type f ')' -o -empty ')' -delete
-
       - name: Karagram build with custom backend.
         if: env.ONLY_CACHE == 'false'
         run: |
-          cd "%GITHUB_WORKSPACE%\Telegram"
+          cd "%GITHUB_WORKSPACE%\TBuild\custom-messenger-client\Telegram"
 
           call configure.bat ^
           %TDESKTOP_BUILD_ARCH% ^
@@ -157,12 +156,12 @@ jobs:
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON ^
           -D DESKTOP_APP_CUSTOM_BACKEND=ON
 
-          cmake --build "%GITHUB_WORKSPACE%\out" --config Release --parallel
+          cmake --build "%GITHUB_WORKSPACE%\TBuild\custom-messenger-client\out" --config Release --parallel
 
       - name: Move artifact.
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
-          set OUT=%GITHUB_WORKSPACE%\out\Release
+          set OUT=%GITHUB_WORKSPACE%\TBuild\custom-messenger-client\out\Release
           mkdir artifact
           move %OUT%\Telegram.exe artifact\
           if exist %OUT%\Updater.exe move %OUT%\Updater.exe artifact\
