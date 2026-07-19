@@ -57,6 +57,8 @@ include(cmake/target_prepare_qrc.cmake)
 include(cmake/options.cmake)
 include(cmake/external/qt/package.cmake)
 
+option(DESKTOP_APP_CUSTOM_BACKEND "Use custom backend instead of Telegram servers" OFF)
+
 set(desktop_app_skip_libs
     glibmm
     variant

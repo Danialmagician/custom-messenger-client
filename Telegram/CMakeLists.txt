@@ -21,6 +21,10 @@ add_subdirectory(lib_webrtc)
 add_subdirectory(lib_webview)
 add_subdirectory(codegen)
 
+if (DESKTOP_APP_CUSTOM_BACKEND)
+    add_subdirectory(SourceFiles/custom_network)
+endif()
+
 get_filename_component(src_loc SourceFiles REALPATH)
 get_filename_component(res_loc Resources REALPATH)
 
@@ -89,6 +93,11 @@ PRIVATE
     desktop-app::external_openal
     desktop-app::external_xxhash
 )
+
+if (DESKTOP_APP_CUSTOM_BACKEND)
+    target_link_libraries(Telegram PRIVATE custom_network)
+    target_compile_definitions(Telegram PRIVATE CUSTOM_BACKEND)
+endif()
 
 if (NOT DESKTOP_APP_DISABLE_SWIFT6)
     telegram_add_apple_swift_runtime(Telegram)
