@@ -1590,7 +1590,7 @@ else: # qt > '6'
     stage('qt_' + qt, """
     git clone -b """ + branch + """ https://github.com/qt/qt5.git qt_$QT
     cd qt_$QT
-    git submodule update --init --recursive --progress qtbase qtimageformats qtshadertools qtsvg
+    git submodule update --init --recursive --progress qtbase qtimageformats qtshadertools qtsvg qtwebsockets
 depends:patches/qtbase_""" + qt + """/*.patch
 mac:
     if [ -d "../patches/qt6_highsierra" ]; then
@@ -1657,6 +1657,7 @@ win:
         -static ^
         -static-runtime ^
         -feature-c++20 ^
+        -feature-websockets ^
         -openssl linked ^
         -system-webp ^
         -system-zlib ^

@@ -1,4 +1,6 @@
 if (DESKTOP_APP_CUSTOM_BACKEND)
+    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS WebSockets REQUIRED)
+
     add_library(custom_network STATIC)
     init_target(custom_network)
     target_sources(custom_network PRIVATE
