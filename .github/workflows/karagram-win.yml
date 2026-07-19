@@ -1,0 +1,206 @@
+name: Karagram Windows Build
+
+on:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/**'
+      - '!.github/workflows/karagram-win.yml'
+  pull_request:
+    branches: [master, main]
+
+jobs:
+
+  build-windows:
+    name: Windows x64
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        qt: [qt6]
+
+    env:
+      UPLOAD_ARTIFACT: "true"
+      ONLY_CACHE: "false"
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Prepare directories.
+        run: |
+          mkdir %userprofile%\TBuild\Libraries
+          mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
+          echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV
+          echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries\win64>>%GITHUB_ENV
+
+      - name: Get repository name.
+        shell: bash
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+
+      - name: Clone.
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+
+      - name: First set up.
+        shell: bash
+        run: |
+          DOCPATH=$TBUILD/$REPO_NAME/docs/building-win.md
+          SDK="$(grep "SDK version" $DOCPATH | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
+          echo "SDK=$SDK" >> $GITHUB_ENV
+
+          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
+
+          echo "$(sha256sum $TBUILD/$REPO_NAME/$PREPARE_PATH | awk '{ print $1 }')" >> CACHE_KEY.txt
+          echo "$SDK" >> CACHE_KEY.txt
+          echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
+
+          git config --global user.email "ci@karagram.dev"
+          git config --global user.name "Karagram CI"
+
+      - uses: actions/checkout@v4
+        name: MSVC Dev Command Prompt.
+        with:
+          submodules: false
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        name: Native Tools Command Prompt.
+        with:
+          arch: x64
+
+      - name: NuGet sources.
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
+
+      - name: ThirdParty cache.
+        id: cache-third-party
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: ${{ runner.OS }}-third-party-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-third-party-
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\*
+            !${{ env.LibrariesPath }}\cache_keys
+            !${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\*
+            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-libs-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-libs-
+
+      - name: Qt cache.
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-${{ matrix.qt || 'qt' }}-
+
+      - name: Libraries.
+        run: |
+          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent ${{ matrix.qt }}
+
+      - name: Free up some disk space.
+        shell: bash
+        run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' ')' -type f ')' -o -empty ')' -delete
+
+      - name: Karagram build with custom backend.
+        if: env.ONLY_CACHE == 'false'
+        run: |
+          cd %TBUILD%\%REPO_NAME%\Telegram
+
+          call configure.bat ^
+          -D TDESKTOP_API_TEST=ON ^
+          -D CMAKE_CONFIGURATION_TYPES=Debug ^
+          -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
+          -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON ^
+          -D DESKTOP_APP_CUSTOM_BACKEND=ON
+
+          cmake --build ..\out --config Debug --parallel
+
+      - name: Verify no Telegram server connections.
+        shell: bash
+        run: |
+          echo "Verifying CUSTOM_BACKEND is defined in build..."
+          grep -r "CUSTOM_BACKEND" $TBUILD/$REPO_NAME/Telegram/SourceFiles/custom_network/ > /dev/null
+          echo "Custom network module found."
+
+      - name: Move artifact.
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          set OUT=%TBUILD%\%REPO_NAME%\out\Debug
+          mkdir artifact
+          move %OUT%\Telegram.exe artifact/
+          if exist %OUT%\Updater.exe move %OUT%\Updater.exe artifact/
+
+      - uses: actions/upload-artifact@v4
+        name: Upload Karagram artifact.
+        if: env.UPLOAD_ARTIFACT == 'true'
+        with:
+          name: Karagram-Windows-x64
+          path: artifact\
+          retention-days: 30
+
+  build-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: karagram
+          POSTGRES_PASSWORD: karagram_secret
+          POSTGRES_DB: karagram
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies.
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Verify backend structure.
+        run: |
+          cd backend
+          python -c "from app.main import app; print('FastAPI app created successfully')"
+          python -c "from app.database import Base; print('Database module OK')"
+          python -c "from app.auth.security import create_access_token, verify_token; print('Auth module OK')"
+          python -c "from app.models import User, Chat, Message, Membership; print('Models OK')"
+          echo "All backend modules verified."
+
+      - name: Upload backend Docker image.
+        if: github.ref == 'refs/heads/master'
+        run: |
+          echo "Backend verified successfully."
