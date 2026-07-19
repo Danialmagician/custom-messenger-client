@@ -1657,7 +1657,6 @@ win:
         -static ^
         -static-runtime ^
         -feature-c++20 ^
-        -feature-websockets ^
         -openssl linked ^
         -system-webp ^
         -system-zlib ^
